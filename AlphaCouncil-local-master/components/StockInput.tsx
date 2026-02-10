@@ -40,7 +40,7 @@ const StockInput: React.FC<StockInputProps> = ({ onAnalyze, disabled }) => {
             <input
                 type="text"
                 className="w-full bg-transparent px-4 py-4 text-white placeholder-slate-500 focus:outline-none font-mono tracking-wider uppercase"
-                placeholder="请输入沪深股票代码 (如: 600519, 000001, 300750)"
+                placeholder="请输入股票代码 (如: 600519, 000001, 300750)"
                 value={symbol}
                 onChange={(e) => setSymbol(e.target.value)}
                 disabled={disabled}
@@ -130,7 +130,7 @@ const StockInput: React.FC<StockInputProps> = ({ onAnalyze, disabled }) => {
 
         <div className="mt-3 text-center">
             <p className="text-xs text-slate-500">
-                💡 仅支持沪深股市代码
+                💡 支持沪深港美股市代码
             </p>
         </div>
     </div>

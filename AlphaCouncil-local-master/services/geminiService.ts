@@ -1,4 +1,3 @@
-// services/geminiService.ts
 import { AgentConfig, ApiKeys, ModelProvider } from '../types';
 
 // 后端 AI 代理接口 URL
@@ -13,7 +12,9 @@ export async function generateAgentResponse(
   stockSymbol: string,
   apiKeys: ApiKeys,
   context: string = "",
-  stockDataContext: string = ""
+  stockDataContext: string = "",
+  // 👇👇👇【关键修复】必须在这里定义参数，否则下面使用时会报错 "holdingCost is not defined"
+  holdingCost?: string 
 ): Promise<string> {
   // 1. 模板变量替换
   // 将 constants.ts 中定义的占位符替换为实际数据
@@ -25,18 +26,21 @@ export async function generateAgentResponse(
   // 替换行情数据 [Price Data]
   finalPrompt = finalPrompt.replace(/\[Price Data\]/gi, stockDataContext || "暂无实时行情数据");
   
-  // 替换上下文 [Context] / [Knowledge Base Summary]
-  // 如果是第一步(P1)，context可能为空，此时填入提示
+  // 替换上下文 [Context]
   finalPrompt = finalPrompt.replace(/\[Context\]|\[Knowledge Base Summary\]/gi, context || "暂无前序分析档案 (这是第一步分析)");
 
-  // 替换 [Current Date] (如果有)
+  // 替换 [Current Date]
   finalPrompt = finalPrompt.replace(/\[Current Date\]|\[当前日期\]/gi, new Date().toLocaleDateString());
+
+  // 👇【处理持仓成本】
+  // 这里使用了 holdingCost 变量，所以上面参数列表必须定义它
+  const costInfo = holdingCost && holdingCost.trim() !== '' ? `${holdingCost} (当前持仓均价)` : "N/A (当前为空仓状态)";
+  console.log("用户输入持仓成本："+costInfo)
+  finalPrompt = finalPrompt.replace(/\[\[?Cost\]?\]/gi, costInfo);
 
   console.log(`[AI Service] Generating for ${config.title}... Provider: ${config.modelProvider}`);
 
   try {
-    // 2. 根据模型提供商调用对应的 API
-    
     // --- GEMINI ---
     if (config.modelProvider === ModelProvider.GEMINI) {
       const response = await fetch(`${getBackendUrl()}/gemini`, {
@@ -44,9 +48,9 @@ export async function generateAgentResponse(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: config.modelName,
-          prompt: finalPrompt, // 发送处理后的完整 Prompt
+          prompt: finalPrompt,
           temperature: config.temperature,
-          tools: [{ googleSearch: {} }], // Gemini 启用搜索
+          tools: [{ googleSearch: {} }],
           apiKey: apiKeys.gemini
         })
       });
@@ -63,9 +67,6 @@ export async function generateAgentResponse(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: config.modelName,
-          // DeepSeek 不像 Gemini 有独立的 system/user 区分那么强，
-          // 这里我们将处理好的 finalPrompt 作为 user content 发送，
-          // 或者可以将 systemPrompt 设为简单的身份定义，这里直接用 finalPrompt 包含所有指令
           systemPrompt: "你是一个专业的金融分析助手。", 
           prompt: finalPrompt,
           temperature: config.temperature,
@@ -80,7 +81,7 @@ export async function generateAgentResponse(
       const data = await response.json();
       return data.text || "生成内容失败 (DeepSeek)";
     }
-
+    
     // --- QWEN ---
     if (config.modelProvider === ModelProvider.QWEN) {
       const response = await fetch(`${getBackendUrl()}/qwen`, {
@@ -107,7 +108,6 @@ export async function generateAgentResponse(
 
   } catch (error) {
     console.error(`Error generating response for ${config.title}:`, error);
-    // 错误处理：抛出以便上层捕获显示
     throw error; 
   }
 }

@@ -3,13 +3,13 @@
 // 后端代理服务器配置
 const BACKEND_API_URL = '/api/stock';
 
-// 扩充接口定义以包含美股/港股字段
+// 1. 扩充接口定义，增加图表 URL 字段
 export interface StockRealtimeData {
   _market: 'HS' | 'HK' | 'US'; // 后端注入的市场标记
   gid?: string;      // 股票编号
   name: string;      // 股票名称
   
-  // 价格字段 (A股用 nowPri, 美/港股用 lastestpri)
+  // 价格字段
   nowPri?: string;     
   lastestpri?: string; 
 
@@ -21,11 +21,11 @@ export interface StockRealtimeData {
   traAmount?: string;  // 成交额
   traNumber?: string;  // 成交量
   
-  uppic?: string;      // 涨跌额 (美/港股可能用 uppic)
-  increase?: string;   // 涨跌额 (A股可能用 increase)
+  uppic?: string;      // 涨跌额
+  increase?: string;   
   
-  limit?: string;      // 涨跌幅 (美/港股)
-  increPer?: string;   // 涨跌幅 (A股)
+  limit?: string;      // 涨跌幅
+  increPer?: string;   
 
   // 美股/港股特定字段
   priearn?: string;    // 市盈率
@@ -33,19 +33,19 @@ export interface StockRealtimeData {
   min52?: string;      // 52周最低
   EPS?: string;        // 每股收益
   
-  // A股特定字段 (竞价等)
+  // A股特定字段
   competitivePri?: string; 
   reservePri?: string; 
-  
-  // A股买卖盘口 (可选，简化定义)
-  buyOne?: string; buyOnePri?: string;
-  sellOne?: string; sellOnePri?: string;
-  // ... 其他盘口数据省略，Prompt中使用简略版
+
+  // 【新增】K线图 URL (聚合数据/新浪源通常提供)
+  minurl?: string;    // 分时图
+  dayurl?: string;    // 日K
+  weekurl?: string;   // 周K
+  monthurl?: string;  // 月K
 }
 
 /**
  * 获取实时股票数据
- * 通过本地后端代理服务器请求聚合数据 API，避免 CORS 问题
  */
 export async function fetchStockData(symbol: string, apiKey?: string): Promise<StockRealtimeData | null> {
   try {
@@ -55,24 +55,15 @@ export async function fetchStockData(symbol: string, apiKey?: string): Promise<S
       body: JSON.stringify({ symbol, apiKey })
     });
     
-    if (!response.ok) {
-      return null;
-    }
+    if (!response.ok) return null;
 
     const result = await response.json();
+    if (!result.success) return null;
 
-    if (!result.success) {
-      return null;
-    }
-
-    // 提取股票数据
-    // 注意：这里适配了新的后端 stock.js 逻辑，数据直接在 result.data 中
     const stockData = result.data;
     
-    // 数据验证：确保必要字段存在
-    // 兼容 A股(nowPri) 和 美股/港股(lastestpri)
+    // 数据验证
     const currentPrice = stockData.nowPri || stockData.lastestpri;
-    
     if (!stockData || !stockData.name || !currentPrice) {
       console.warn('[AlphaCouncil] 数据校验失败: 缺少价格或名称', stockData);
       return null;
@@ -88,12 +79,12 @@ export async function fetchStockData(symbol: string, apiKey?: string): Promise<S
 
 /**
  * 将原始 JSON 数据格式化为 AI 可读的字符串
- * 根据聚合数据API文档格式优化输出，支持多市场
+ * 2. 在这里增加图表 URL 的输出
  */
 export function formatStockDataForPrompt(data: StockRealtimeData | null): string {
   if (!data) return "无法获取实时行情数据 (API连接失败或无数据)。";
 
-  // 1. 提取通用字段，处理字段名差异
+  // 1. 提取通用字段
   const price = data.nowPri || data.lastestpri || "0";
   const changePercent = data.limit || data.increPer || "0";
   const changeAmt = data.uppic || data.increase || "0";
@@ -102,9 +93,8 @@ export function formatStockDataForPrompt(data: StockRealtimeData | null): string
   const high = data.maxpri || "N/A";
   const low = data.minpri || "N/A";
   
-  // 2. 市场特定信息构建
+  // 2. 市场特定信息
   let specificInfo = "";
-  
   if (data._market === 'US') {
       specificInfo = `
 【美股特定数据】
@@ -121,13 +111,22 @@ export function formatStockDataForPrompt(data: StockRealtimeData | null): string
   52周最低: ${data.min52 || 'N/A'}
       `;
   } else {
-      // A股
       specificInfo = `
 【A股特定数据】
   竞买价: ${data.competitivePri || '--'}
   竞卖价: ${data.reservePri || '--'}
       `;
   }
+
+  // 3. 【新增】K线图链接区块
+  // 注意：有些市场或接口可能没有返回这些 URL，做判空处理
+  const chartsInfo = `
+【技术面参考图表 (URL)】
+  分时图: ${data.minurl || 'N/A'}
+  日K线: ${data.dayurl || 'N/A'}
+  周K线: ${data.weekurl || 'N/A'} 
+  月K线: ${data.monthurl || 'N/A'}
+  `;
 
   return `
 ╔═══════════════════════════════════════════════════════════╗
@@ -151,6 +150,7 @@ export function formatStockDataForPrompt(data: StockRealtimeData | null): string
   成交量: ${data.traNumber || 'N/A'}
   成交额: ${data.traAmount || 'N/A'}
 ${specificInfo}
+${chartsInfo}
 ═══════════════════════════════════════════════════════════
   `;
 }

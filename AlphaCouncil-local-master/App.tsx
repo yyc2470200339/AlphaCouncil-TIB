@@ -5,10 +5,10 @@ import { fetchStockData, formatStockDataForPrompt } from './services/juheService
 import StockInput from './components/StockInput';
 import AgentCard from './components/AgentCard';
 import { DEFAULT_AGENTS } from './constants';
-// 引入图标，注意 constants.ts 中用到了 FileSearch, Target, ShieldAlert, Wallet
+// 引入必要的图标
 import { 
   RefreshCw, Download, Database, AlertTriangle, 
-  FileSearch, Target, ShieldAlert, Wallet, LayoutDashboard 
+  LayoutDashboard, BrainCircuit, ShieldCheck, Gavel, Settings2
 } from 'lucide-react';
 
 const initialState: WorkflowState = {
@@ -23,6 +23,14 @@ const initialState: WorkflowState = {
 
 const App: React.FC = () => {
   const [state, setState] = useState<WorkflowState>(initialState);
+  
+  // =================================================================
+  // 👇【关键修复】之前漏掉了这两行状态定义，导致报错 holdingCost is not defined
+  // =================================================================
+  const [includeP6, setIncludeP6] = useState(true); 
+  const [holdingCost, setHoldingCost] = useState<string>('');
+  // =================================================================
+
   const reportRef = useRef<HTMLDivElement>(null);
 
   // 处理配置修改
@@ -60,11 +68,15 @@ const App: React.FC = () => {
       const workflow = [
           AgentRole.P1_RESEARCH,
           AgentRole.P2_STRATEGY,
-          AgentRole.P5_BUY,
-          AgentRole.P6_SELL
+          AgentRole.P5_BUY
       ];
 
-      // 临时存储输出，用于构建 Context
+      // 根据用户选择决定是否加入 P6
+      if (includeP6) {
+          workflow.push(AgentRole.P6_SELL);
+      }
+
+      // 临时存储输出
       let currentOutputs: Partial<Record<AgentRole, string>> = {};
 
       // 串行执行
@@ -72,15 +84,11 @@ const App: React.FC = () => {
           const role = workflow[i];
           setState(prev => ({ ...prev, currentStep: i + 1 }));
 
-          // 构建上下文 (Context)
-          // P1 不需要前序 Context
-          // P2 需要 P1
-          // P5, P6 需要 P1 + P2
+          // 构建上下文
           let context = "";
           if (role === AgentRole.P1_RESEARCH) {
               context = ""; 
           } else {
-              // 将之前所有步骤的输出组合作为 Context
               context = Object.entries(currentOutputs)
                 .map(([r, content]) => `【${state.agentConfigs[r as AgentRole].title} 报告】:\n${content}`)
                 .join("\n\n----------------\n\n");
@@ -88,8 +96,18 @@ const App: React.FC = () => {
 
           const config = state.agentConfigs[role];
           
-          // 调用通用生成函数
-          const response = await generateAgentResponse(config, symbol, apiKeys, context, stockContext);
+          // 传递持仓成本（仅 P6 需要）
+          const currentHoldingCost = (role === AgentRole.P6_SELL && includeP6) ? holdingCost : undefined;
+
+          // 调用生成函数
+          const response = await generateAgentResponse(
+              config, 
+              symbol, 
+              apiKeys, 
+              context, 
+              stockContext,
+              currentHoldingCost // 传递成本参数
+          );
 
           // 更新结果
           currentOutputs = { ...currentOutputs, [role]: response };
@@ -115,7 +133,23 @@ const App: React.FC = () => {
     window.print();
   };
 
-  const reset = () => setState(prev => ({ ...initialState, apiKeys: prev.apiKeys }));
+  const reset = () => {
+    setState(prev => ({ ...initialState, apiKeys: prev.apiKeys }));
+    setHoldingCost(''); // 重置成本
+  };
+
+  // 计算需要渲染的卡片列表
+  const getCardsToRender = () => {
+      const cards = [AgentRole.P1_RESEARCH, AgentRole.P2_STRATEGY, AgentRole.P5_BUY];
+      if (includeP6) {
+          cards.push(AgentRole.P6_SELL);
+      }
+      return cards;
+  };
+
+  // 辅助函数
+  const isStepLoading = (stepIndex: number) => state.status === AnalysisStatus.RUNNING && state.currentStep === stepIndex;
+  const isStepPending = (stepIndex: number) => state.status === AnalysisStatus.IDLE || state.status === AnalysisStatus.FETCHING_DATA || (state.status === AnalysisStatus.RUNNING && state.currentStep < stepIndex);
 
   return (
     <div className="min-h-screen bg-slate-950 pb-20">
@@ -147,11 +181,47 @@ const App: React.FC = () => {
               <h1 className="text-4xl md:text-5xl font-bold text-white text-center mb-6">
                  TIB-OS 投资分析系统 v3.0
               </h1>
-              <p className="text-slate-400 mb-10 text-center max-w-xl">
+              <p className="text-slate-400 mb-8 text-center max-w-xl">
                  基于 TIB-OS 核心框架 (P1/P2/P5/P6)。<br/>
                  集成 Gemini 联网调研与 DeepSeek 深度推理，一键生成结构化投研档案。
-              </p>
-              <StockInput onAnalyze={handleAnalyze} disabled={false} />
+              </p >
+              
+              <div className="w-full max-w-2xl">
+                  <StockInput onAnalyze={handleAnalyze} disabled={false} />
+                  
+                  {/* P6 开启/关闭选项 */}
+                  <div className="flex flex-col items-center justify-center mt-6 gap-4 animate-fade-in">
+                      <div 
+                        onClick={() => setIncludeP6(!includeP6)}
+                        className="flex items-center gap-2 cursor-pointer group bg-slate-900/50 px-4 py-2 rounded-lg border border-slate-800 hover:border-blue-500/50 transition-all w-fit"
+                      >
+                          <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${includeP6 ? 'bg-blue-600 border-blue-600' : 'border-slate-500 group-hover:border-blue-400'}`}>
+                              {includeP6 && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                          </div>
+                          <span className={`text-sm select-none ${includeP6 ? 'text-blue-100' : 'text-slate-400 group-hover:text-slate-300'}`}>
+                              启用 P6 - 利润守门员 (卖出/持仓决策)
+                          </span>
+                      </div>
+
+                      {/* 成本输入框 (修复报错的关键：这里用到了 holdingCost 变量) */}
+                      {includeP6 && (
+                          <div className="flex items-center gap-3 animate-fade-in-up">
+                              <label className="text-slate-400 text-sm">当前持仓成本:</label>
+                              <div className="relative">
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
+                                  <input 
+                                      type="number" 
+                                      placeholder="0.00 (选填)"
+                                      value={holdingCost} 
+                                      onChange={(e) => setHoldingCost(e.target.value)}
+                                      className="bg-slate-900 border border-slate-700 text-white text-sm rounded px-3 py-1.5 pl-6 w-32 focus:outline-none focus:border-blue-500 transition-colors"
+                                  />
+                              </div>
+                              <span className="text-xs text-slate-500">(留空则默认按空仓策略分析)</span>
+                          </div>
+                      )}
+                  </div>
+              </div>
            </div>
         ) : (
            <div ref={reportRef} className="print:text-black print:bg-white space-y-8">
@@ -180,22 +250,20 @@ const App: React.FC = () => {
                   </h1>
                   <p className="text-gray-600 mt-2 text-sm">
                       生成时间: {new Date().toLocaleString()} | 模型: TIB-OS v3.0
-                  </p>
+                  </p >
                   <div className="mt-4 p-4 bg-gray-100 border border-gray-300 font-mono text-xs">
                       {state.stockDataContext}
                   </div>
               </div>
 
-              {/* 分析卡片流 - 按照 P1 -> P2 -> P5 -> P6 顺序渲染 */}
+              {/* 分析卡片流 */}
               <div className="grid grid-cols-1 gap-6">
-                  {[AgentRole.P1_RESEARCH, AgentRole.P2_STRATEGY, AgentRole.P5_BUY, AgentRole.P6_SELL].map((role, index) => (
+                  {getCardsToRender().map((role, index) => (
                       <div key={role} className="break-inside-avoid">
                          <AgentCard 
                             config={state.agentConfigs[role]}
                             content={state.outputs[role]}
-                            // 判断加载状态：正在运行 且 当前没有输出 且 当前步骤小于等于该卡片索引+1
                             isLoading={state.status === AnalysisStatus.RUNNING && !state.outputs[role] && state.currentStep === index + 1}
-                            // 判断等待状态
                             isPending={state.status === AnalysisStatus.RUNNING && state.currentStep <= index} 
                             isConfigMode={false}
                             onConfigChange={(newConfig) => handleConfigChange(role, newConfig)}
@@ -207,7 +275,6 @@ const App: React.FC = () => {
         )}
       </main>
       
-      {/* 打印优化样式 */}
       <style>{`
         @media print {
           body { background: white; color: black; }
@@ -216,7 +283,6 @@ const App: React.FC = () => {
           .text-white { color: black !important; }
           .text-slate-400 { color: #666 !important; }
           .bg-slate-900 { background: #f3f4f6 !important; border-color: #ddd !important; }
-          /* 强制展开 AgentCard 内容，防止滚动条在打印时截断内容 */
           .overflow-y-auto { overflow: visible !important; height: auto !important; }
         }
       `}</style>

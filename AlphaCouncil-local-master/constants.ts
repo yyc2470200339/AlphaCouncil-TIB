@@ -231,7 +231,9 @@ export const DEFAULT_AGENTS: Record<AgentRole, AgentConfig> = {
 # Context (User Input)
 1. **此次分析的股票标的ticker** [Ticker]
 2. **当前价格/k线形态/估值等信息Current Price Data:** [Price Data]
-3. **个股分析详细数据或者附件Knowledge Base Summary:** [Context]`
+3. **个股分析详细数据或者附件Knowledge Base Summary:** [Context]
+4. **当前持仓成本Holding cost:** [Cost]`
+
   }
 };
 // ... MODEL_OPTIONS 保持不变

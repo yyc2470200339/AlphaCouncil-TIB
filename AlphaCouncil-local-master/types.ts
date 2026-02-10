@@ -54,6 +54,14 @@ export interface ApiKeys {
 }
 
 // 全局工作流状态
+export interface SavedReport {
+  id: string;             // 唯一ID (时间戳)
+  timestamp: number;      // 排序用
+  dateStr: string;        // 展示用日期
+  symbol: string;         // 股票代码
+  stockDataContext: string; // 当时的行情数据
+  outputs: Partial<Record<AgentRole, string>>; // 当时的AI分析结果
+}
 export interface WorkflowState {
   status: AnalysisStatus;
   currentStep: number; // 0: Idle, 1..N: Steps

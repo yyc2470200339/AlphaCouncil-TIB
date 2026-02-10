@@ -23,7 +23,7 @@ function detectMarket(symbol) {
   if (/^\d{5}$/.test(code)) return 'HK';
   // 沪深：6位数字 (如 600519) 或 sh/sz开头
   if (/^(sh|sz)?\d{6}$/.test(code)) return 'HS';
-  return 'UNKNOWN';
+  return 'HS'; // 默认为沪深
 }
 
 router.post('/:symbol', async (req, res) => {
@@ -50,7 +50,7 @@ router.post('/:symbol', async (req, res) => {
         url = `${API_URLS.HK}?num=${formattedSymbol}&key=${effectiveApiKey}`;
         break;
       case 'HS':
-        // 沪深处理逻辑保持不变
+        // 沪深处理逻辑
         if (!formattedSymbol.startsWith('sh') && !formattedSymbol.startsWith('sz')) {
             formattedSymbol = formattedSymbol.startsWith('6') ? `sh${formattedSymbol}` : `sz${formattedSymbol}`;
         }
@@ -67,10 +67,30 @@ router.post('/:symbol', async (req, res) => {
       return res.status(400).json({ success: false, error: data.reason || 'API 请求失败' });
     }
 
-    // 标准化返回数据，因为不同接口返回结构略有差异
-    let cleanData = data.result[0]?.data || data.result[0]; // 兼容不同结构
+    // 【核心修复】提取逻辑优化
+    // 聚合数据结构通常为: result: [{ data: {...}, gopicture: {...} }]
+    const resultObj = data.result && data.result[0];
     
-    // 注入市场标记，供前端格式化使用
+    if (!resultObj) {
+         return res.status(400).json({ success: false, error: 'API 返回数据格式异常' });
+    }
+
+    // 1. 获取基础行情
+    let cleanData = resultObj.data || resultObj; 
+    
+    // 2. 【关键】合并 K线图 URL (gopicture)
+    // 如果存在 gopicture 字段，将其属性展开合并到 cleanData 中
+    if (resultObj.gopicture) {
+        cleanData = {
+            ...cleanData,
+            minurl: resultObj.gopicture.minurl,   // 分时
+            dayurl: resultObj.gopicture.dayurl,   // 日K
+            weekurl: resultObj.gopicture.weekurl, // 周K
+            monthurl: resultObj.gopicture.monthurl // 月K
+        };
+    }
+
+    // 注入市场标记
     cleanData._market = market; 
 
     return res.json({
